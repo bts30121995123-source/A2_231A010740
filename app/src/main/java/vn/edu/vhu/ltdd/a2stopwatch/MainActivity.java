@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.TextView;
 
 import androidx.activity.EdgeToEdge;
@@ -14,11 +15,11 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import java.util.ArrayList;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    // TODO: thay 2201234567 bằng MSSV của bạn
     private static final String TAG = "A2_231A010740";
 
     // Khóa lưu trạng thái vào Bundle
@@ -27,8 +28,20 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_START = "start";
     private static final String KEY_RECREATE = "recreate";
 
+    // NC1 + NC2
+    private static final String KEY_LAPS = "laps";
+    private static final String KEY_STOP_BACKGROUND = "stop_background";
+
     private TextView tvTime, tvStatus, tvRecreate;
     private Button btnStartPause, btnReset;
+
+    // NC1
+    private Button btnLap;
+    private TextView tvLaps;
+    private ArrayList<String> laps = new ArrayList<>();
+
+    // NC2
+    private CheckBox cbStopBackground;
 
     // Trạng thái của đồng hồ
     private boolean running = false;
@@ -64,11 +77,28 @@ public class MainActivity extends AppCompatActivity {
         btnStartPause = findViewById(R.id.btnStartPause);
         btnReset = findViewById(R.id.btnReset);
 
+        // NC1
+        btnLap = findViewById(R.id.btnLap);
+        tvLaps = findViewById(R.id.tvLaps);
+
+        // NC2
+        cbStopBackground = findViewById(R.id.cbStopBackground);
+
         if (savedInstanceState != null) {
             running = savedInstanceState.getBoolean(KEY_RUNNING);
             accumulated = savedInstanceState.getLong(KEY_ACCUMULATED);
             startTime = savedInstanceState.getLong(KEY_START);
             recreateCount = savedInstanceState.getInt(KEY_RECREATE) + 1;
+
+            // NC1: khôi phục danh sách vòng
+            ArrayList<String> savedLaps = savedInstanceState.getStringArrayList(KEY_LAPS);
+            if (savedLaps != null) {
+                laps = savedLaps;
+            }
+
+            // NC2: khôi phục trạng thái checkbox
+            cbStopBackground.setChecked(
+                    savedInstanceState.getBoolean(KEY_STOP_BACKGROUND));
 
             Log.d(TAG, "onCreate: KHÔI PHỤC trạng thái, running=" + running
                     + ", accumulated=" + accumulated + "ms");
@@ -86,7 +116,11 @@ public class MainActivity extends AppCompatActivity {
 
         btnReset.setOnClickListener(v -> resetStopwatch());
 
+        // NC1
+        btnLap.setOnClickListener(v -> addLap());
+
         updateUi();
+        updateLapList();
     }
 
     // ---------------- Logic đồng hồ ----------------
@@ -143,10 +177,7 @@ public class MainActivity extends AppCompatActivity {
         tvTime.setText(String.format(
                 Locale.getDefault(),
                 "%02d:%02d.%d",
-                phut,
-                giay,
-                phanMuoi
-        ));
+                phut, giay, phanMuoi));
     }
 
     private void updateUi() {
@@ -154,6 +185,33 @@ public class MainActivity extends AppCompatActivity {
         btnStartPause.setText(running ? R.string.pause : R.string.start);
         tvStatus.setText(running ? R.string.status_running : R.string.status_paused);
         tvRecreate.setText(getString(R.string.recreate_count, recreateCount));
+    }
+
+    // ---------------- NC1: Vòng (Lap) ----------------
+
+    private void addLap() {
+        long ms = elapsed();
+        long phut = ms / 60000;
+        long giay = (ms % 60000) / 1000;
+        long phanMuoi = (ms % 1000) / 100;
+
+        String lapTime = String.format(
+                Locale.getDefault(),
+                "Vòng %d: %02d:%02d.%d",
+                laps.size() + 1, phut, giay, phanMuoi);
+
+        laps.add(lapTime);
+        updateLapList();
+    }
+
+    private void updateLapList() {
+        StringBuilder builder = new StringBuilder();
+
+        for (String lap : laps) {
+            builder.append(lap).append("\n");
+        }
+
+        tvLaps.setText(builder.toString());
     }
 
     // ---------------- Vòng đời ----------------
@@ -167,7 +225,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        Log.d(TAG, "onResume – bật lại việc cập nhật giao diện nếu đồng hồ đang chạy");
+
+        Log.d(TAG,
+                "onResume – bật lại việc cập nhật giao diện nếu đồng hồ đang chạy");
 
         if (running) {
             startTicking();
@@ -180,8 +240,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
 
-        // Dừng cập nhật giao diện để tiết kiệm pin; đồng hồ vẫn tính đúng
-        // vì thời gian được suy ra từ mốc SystemClock.elapsedRealtime().
+        // Dừng cập nhật giao diện để tiết kiệm pin;
+        // đồng hồ vẫn tính đúng nhờ SystemClock.elapsedRealtime().
         stopTicking();
 
         Log.d(TAG, "onPause – tạm dừng cập nhật giao diện");
@@ -190,6 +250,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
+
+        // NC2: nếu được tick thì dừng đồng hồ khi ra nền
+        if (cbStopBackground.isChecked() && running) {
+            pauseStopwatch();
+        }
+
         Log.d(TAG, "onStop");
     }
 
@@ -217,7 +283,16 @@ public class MainActivity extends AppCompatActivity {
         outState.putLong(KEY_START, startTime);
         outState.putInt(KEY_RECREATE, recreateCount);
 
-        Log.d(TAG, "onSaveInstanceState – đã lưu " + elapsed() + "ms vào Bundle");
+        // NC1
+        outState.putStringArrayList(KEY_LAPS, laps);
+
+        // NC2
+        outState.putBoolean(
+                KEY_STOP_BACKGROUND,
+                cbStopBackground.isChecked());
+
+        Log.d(TAG,
+                "onSaveInstanceState – đã lưu " + elapsed() + "ms vào Bundle");
     }
 
     @Override
